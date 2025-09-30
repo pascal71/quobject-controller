@@ -100,9 +100,20 @@ func (r *QuObjectBucketClaimReconciler) Reconcile(
 	region := string(credSecret.Data["region"])
 	accessKey := string(credSecret.Data["accessKey"])
 	secretKey := string(credSecret.Data["secretKey"])
+	
+	// Extract SSL configuration with defaults
+	useSSL := true // default to HTTPS
+	if sslStr := string(credSecret.Data["useSSL"]); sslStr != "" {
+		useSSL = sslStr == "true" || sslStr == "1"
+	}
+	
+	insecureSkipVerify := false // default to verify certificates
+	if skipVerifyStr := string(credSecret.Data["insecureSkipVerify"]); skipVerifyStr != "" {
+		insecureSkipVerify = skipVerifyStr == "true" || skipVerifyStr == "1"
+	}
 
 	// Create S3 client
-	s3Client, err := newS3Client(endpoint, region, accessKey, secretKey, true, true)
+	s3Client, err := newS3Client(endpoint, region, accessKey, secretKey, useSSL, insecureSkipVerify, true)
 	if err != nil {
 		log.Error(err, "Failed to create S3 client")
 		claim.Status.Phase = "Error"
@@ -271,8 +282,19 @@ func (r *QuObjectBucketClaimReconciler) handleDeletion(
 					region := string(credSecret.Data["region"])
 					accessKey := string(credSecret.Data["accessKey"])
 					secretKey := string(credSecret.Data["secretKey"])
+
+	                                // Extract SSL configuration with defaults
+	                                useSSL := true // default to HTTPS
+	                                if sslStr := string(credSecret.Data["useSSL"]); sslStr != "" {
+		                          useSSL = sslStr == "true" || sslStr == "1"
+	                                }
+	
+	                                insecureSkipVerify := false // default to verify certificates
+	                                if skipVerifyStr := string(credSecret.Data["insecureSkipVerify"]); skipVerifyStr != "" {
+		                          insecureSkipVerify = skipVerifyStr == "true" || skipVerifyStr == "1"
+	                                }
 					
-					s3Client, err := newS3Client(endpoint, region, accessKey, secretKey, true, true)
+					s3Client, err := newS3Client(endpoint, region, accessKey, secretKey, useSSL, insecureSkipVerify, true)
 					if err == nil {
 						if err := deleteBucket(ctx, s3Client, bucketName); err != nil {
 							log.Error(err, "Failed to delete bucket", "bucket", bucketName)
@@ -347,12 +369,27 @@ func (r *QuObjectBucketClaimReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 // Helper functions
 
+// newS3Client creates a new S3 client with configurable SSL/TLS settings
 func newS3Client(
 	endpoint, region, accessKey, secretKey string,
-	useSSL, forcePath bool,
+	useSSL, insecureSkipVerify, forcePath bool,
 ) (*s3.Client, error) {
-	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}}
+	// Configure TLS based on settings
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: insecureSkipVerify,
+		},
+	}
 	hclient := &http.Client{Transport: tr}
+
+	// Ensure endpoint has correct protocol
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		if useSSL {
+			endpoint = "https://" + endpoint
+		} else {
+			endpoint = "http://" + endpoint
+		}
+	}
 
 	cfg, err := config.LoadDefaultConfig(
 		context.TODO(),
