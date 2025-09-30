@@ -69,7 +69,7 @@ func main() {
 		}),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "quobject-controller.pascalvandam.io",
+		LeaderElectionID:       "quobject-controller.quobject.io",
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

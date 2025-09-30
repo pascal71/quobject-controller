@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	finalizerName = "quobject.pascalvandam.io/finalizer"
+	finalizerName = "quobject.io/finalizer"
 	controllerNS  = "quobject-controller"
 )
 

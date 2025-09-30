@@ -1,0 +1,7 @@
+# Create the S3 credentials secret
+kubectl create secret generic s3-credentials \
+  --namespace=quobject-controller \
+  --from-literal=endpoint=http://s3.example.org \
+  --from-literal=region=us-east-1 \
+  --from-literal=accessKey=<access-key> \
+  --from-literal=secretKey=<access-key>

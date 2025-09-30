@@ -19,7 +19,7 @@ spec:
       containers:
         - name: manager
           # ko replaces this with a built image at ko resolve/apply time
-          image: ko://github.com/your-org/quobject-controller
+          image: ko://github.com/pamvdam71/quobject-controller
           imagePullPolicy: IfNotPresent
           args:
             # enable or remove if you don't want leader election

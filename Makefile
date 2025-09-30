@@ -183,10 +183,14 @@ ko-apply: ko-check manifests
 	@echo ">> Registry: $(KO_DOCKER_REPO)"
 	@echo ">> Platforms: $(KO_PLATFORMS)"
 	@echo ">> Target cluster: $$(kubectl config current-context)"
-	KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko resolve \
+	@echo ">> Installing CRDs first"
+	kubectl apply -f config/crd/bases/
+	@echo ">> Deploying controller"
+	kustomize build config/default | \
+		KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko resolve \
 		--platform=$(KO_PLATFORMS) \
 		$(KO_FLAGS) \
-		-f $(KUSTOMIZE_DIR) | kubectl apply -f -
+		-f - | kubectl apply -f -
 
 .PHONY: ko-build-local
 ko-build-local: ko-check

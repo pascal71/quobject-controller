@@ -1,14 +1,23 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-name: quobject-controller
+  name: quobject-controller-role
 rules:
 - apiGroups: [""]
-  resources: ["secrets","configmaps"]
-  verbs: ["get","list","watch","create","update","patch","delete"]
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create","patch"]
-  - apiGroups: ["pascalvandam.io"]
-    resources: ["quobjectbucketclaims","quobjectbucketclaims/status","quobjectbucketclaims/finalizers"]
-    verbs: ["get","list","watch","update","patch","create","delete"]
+  resources: ["secrets", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: ["quobject.io"]
+  resources: ["quobjectbucketclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["quobject.io"]
+  resources: ["quobjectbucketclaims/status"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: ["quobject.io"]
+  resources: ["quobjectbucketclaims/finalizers"]
+  verbs: ["update"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "create", "update", "patch", "delete"]
