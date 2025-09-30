@@ -14,9 +14,24 @@ spec:
     singular: quobjectbucketclaim
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.bucketName
+      name: BucketName
+      type: string
+    - jsonPath: .spec.retainPolicy
+      name: RetainPolicy
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: QuObjectBucketClaim is the Schema for the quobjectbucketclaims
+          API
         properties:
           apiVersion:
             description: |-
@@ -36,27 +51,53 @@ spec:
           metadata:
             type: object
           spec:
+            description: QuObjectBucketClaimSpec defines the desired state of QuObjectBucketClaim
             properties:
               additionalConfig:
                 additionalProperties:
                   type: string
+                description: AdditionalConfig contains additional configuration for
+                  the bucket
                 type: object
               bucketName:
+                description: |-
+                  BucketName is the explicit name for the bucket.
+                  If specified, this exact name will be used.
                 type: string
               generateBucketName:
+                description: |-
+                  GenerateBucketName is the prefix for generated bucket names.
+                  If specified (and BucketName is not), a random suffix will be added.
+                type: string
+              retainPolicy:
+                default: Retain
+                description: |-
+                  RetainPolicy determines if the bucket should be retained or deleted
+                  when the claim is deleted. Default is "Retain".
+                enum:
+                - Retain
+                - Delete
                 type: string
               storageClassName:
+                description: StorageClassName specifies the storage class to use
                 type: string
             type: object
           status:
+            description: QuObjectBucketClaimStatus defines the observed state of QuObjectBucketClaim
             properties:
               bucketName:
+                description: BucketName is the actual name of the created bucket
                 type: string
               configMapRef:
+                description: ConfigMapRef is the name of the configmap containing
+                  bucket configuration
                 type: string
               phase:
+                description: Phase represents the current phase of the bucket claim
                 type: string
               secretRef:
+                description: SecretRef is the name of the secret containing bucket
+                  credentials
                 type: string
             type: object
         type: object

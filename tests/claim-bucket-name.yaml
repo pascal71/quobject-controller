@@ -1,0 +1,7 @@
+apiVersion: quobject.io/v1alpha1
+kind: QuObjectBucketClaim
+metadata:
+  name: explicit-name-test
+spec:
+  bucketName: my-specific-bucket-name
+  retainPolicy: Retain

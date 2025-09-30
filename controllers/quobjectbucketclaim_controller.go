@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -28,6 +29,10 @@ import (
 const (
 	finalizerName = "quobject.io/finalizer"
 	controllerNS  = "quobject-controller"
+	
+	// Annotations for storing bucket metadata
+	annotationBucketName = "quobject.io/bucket-name"
+	annotationRetainPolicy = "quobject.io/retain-policy"
 )
 
 // QuObjectBucketClaimReconciler reconciles a QuObjectBucketClaim object
@@ -77,7 +82,7 @@ func (r *QuObjectBucketClaimReconciler) Reconcile(
 	// Main reconciliation logic
 	log.Info("Reconciling QuObjectBucketClaim", "Name", claim.Name, "Namespace", claim.Namespace)
 
-	// Get S3 credentials from secret (you'll need to create this secret in the controller namespace)
+	// Get S3 credentials from secret
 	credSecret := &corev1.Secret{}
 	err = r.Get(ctx, types.NamespacedName{
 		Name:      "s3-credentials",
@@ -106,14 +111,16 @@ func (r *QuObjectBucketClaimReconciler) Reconcile(
 	}
 
 	// Determine bucket name
-	bucketName := claim.Spec.BucketName
-	if bucketName == "" && claim.Spec.GenerateBucketName != "" {
-		bucketName = fmt.Sprintf(
-			"%s-%s-%s",
-			claim.Spec.GenerateBucketName,
-			claim.Namespace,
-			claim.Name,
-		)
+	bucketName := r.determineBucketName(claim)
+	
+	// Store bucket name and retain policy in annotations for deletion handling
+	if claim.Annotations == nil {
+		claim.Annotations = make(map[string]string)
+	}
+	claim.Annotations[annotationBucketName] = bucketName
+	claim.Annotations[annotationRetainPolicy] = string(claim.Spec.RetainPolicy)
+	if err := r.Update(ctx, claim); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Ensure bucket exists
@@ -192,6 +199,40 @@ func (r *QuObjectBucketClaimReconciler) Reconcile(
 	return ctrl.Result{}, nil
 }
 
+// determineBucketName determines the bucket name based on the spec
+func (r *QuObjectBucketClaimReconciler) determineBucketName(claim *quv1.QuObjectBucketClaim) string {
+	// If explicit bucket name is provided, use it
+	if claim.Spec.BucketName != "" {
+		return claim.Spec.BucketName
+	}
+
+	// If already have a bucket name in status, reuse it (for idempotency)
+	if claim.Status.BucketName != "" {
+		return claim.Status.BucketName
+	}
+
+	// Generate a new bucket name with random suffix
+	if claim.Spec.GenerateBucketName != "" {
+		suffix := generateRandomString(5)
+		return fmt.Sprintf("%s-%s", claim.Spec.GenerateBucketName, suffix)
+	}
+
+	// Fallback: use namespace-name pattern with random suffix
+	suffix := generateRandomString(5)
+	return fmt.Sprintf("%s-%s-%s", claim.Namespace, claim.Name, suffix)
+}
+
+// generateRandomString generates a random alphanumeric string of specified length
+func generateRandomString(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, length)
+	rand.Read(b)
+	for i := range b {
+		b[i] = charset[b[i]%byte(len(charset))]
+	}
+	return string(b)
+}
+
 // handleDeletion handles the deletion of the QuObjectBucketClaim
 func (r *QuObjectBucketClaimReconciler) handleDeletion(
 	ctx context.Context,
@@ -200,9 +241,53 @@ func (r *QuObjectBucketClaimReconciler) handleDeletion(
 	log := log.FromContext(ctx)
 
 	if controllerutil.ContainsFinalizer(claim, finalizerName) {
-		// Perform cleanup logic here
-		// For example, you might want to delete the S3 bucket if configured to do so
-		log.Info("Cleaning up resources for QuObjectBucketClaim", "Name", claim.Name)
+		log.Info("Processing QuObjectBucketClaim deletion", 
+			"Name", claim.Name, 
+			"RetainPolicy", claim.Spec.RetainPolicy)
+
+		// Check retain policy
+		if claim.Spec.RetainPolicy == quv1.RetainPolicyDelete {
+			// Delete the bucket if policy is Delete
+			bucketName := claim.Annotations[annotationBucketName]
+			if bucketName == "" {
+				bucketName = claim.Status.BucketName
+			}
+
+			if bucketName != "" {
+				log.Info("Deleting bucket per retain policy", "bucket", bucketName)
+				
+				// Get S3 credentials
+				credSecret := &corev1.Secret{}
+				err := r.Get(ctx, types.NamespacedName{
+					Name:      "s3-credentials",
+					Namespace: controllerNS,
+				}, credSecret)
+				if err != nil {
+					log.Error(err, "Failed to get S3 credentials for bucket deletion")
+					// Continue with finalizer removal even if we can't delete the bucket
+				} else {
+					// Create S3 client and delete bucket
+					endpoint := string(credSecret.Data["endpoint"])
+					region := string(credSecret.Data["region"])
+					accessKey := string(credSecret.Data["accessKey"])
+					secretKey := string(credSecret.Data["secretKey"])
+					
+					s3Client, err := newS3Client(endpoint, region, accessKey, secretKey, true, true)
+					if err == nil {
+						if err := deleteBucket(ctx, s3Client, bucketName); err != nil {
+							log.Error(err, "Failed to delete bucket", "bucket", bucketName)
+							// Continue with finalizer removal
+						} else {
+							log.Info("Successfully deleted bucket", "bucket", bucketName)
+						}
+					}
+				}
+			}
+		} else {
+			// Retain policy - keep the bucket
+			log.Info("Retaining bucket per retain policy", 
+				"bucket", claim.Status.BucketName)
+		}
 
 		// Remove finalizer
 		controllerutil.RemoveFinalizer(claim, finalizerName)
@@ -212,6 +297,43 @@ func (r *QuObjectBucketClaimReconciler) handleDeletion(
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// deleteBucket deletes an S3 bucket (must be empty)
+func deleteBucket(ctx context.Context, s3c *s3.Client, bucket string) error {
+	// First, delete all objects in the bucket
+	// List objects
+	listResp, err := s3c.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list objects: %w", err)
+	}
+
+	// Delete each object
+	for _, obj := range listResp.Contents {
+		_, err := s3c.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    obj.Key,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete object %s: %w", *obj.Key, err)
+		}
+	}
+
+	// Now delete the bucket
+	_, err = s3c.DeleteBucket(ctx, &s3.DeleteBucketInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		// Check if bucket doesn't exist (already deleted)
+		if strings.Contains(strings.ToLower(err.Error()), "nosuchbucket") {
+			return nil
+		}
+		return fmt.Errorf("failed to delete bucket: %w", err)
+	}
+
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager

@@ -1,0 +1,7 @@
+apiVersion: quobject.io/v1alpha1
+kind: QuObjectBucketClaim
+metadata:
+  name: generated-name-test
+spec:
+  generateBucketName: myapp
+  retainPolicy: Delete
