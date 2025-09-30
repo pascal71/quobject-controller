@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quobject-controller
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: quobject-quobject.pascalvandam.io-creds
+  namespace: quobject-controller
+  labels:
+    app.kubernetes.io/name: quobject-controller
+  stringData:
+    access_key: YOUR_ADMIN_ACCESS_KEY
+    secret_key: YOUR_ADMIN_SECRET_KEY
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: quobject-quobject.pascalvandam.io-config
+  namespace: quobject-controller
+  labels:
+    app.kubernetes.io/name: quobject-controller
+data:
+  host: quobjects.example.lan
+  port: "9000"
+  region: us-east-1
+  useSSL: "true"
+  forcePathStyle: "true"

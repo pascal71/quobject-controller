@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quobject-controller
+  namespace: quobject-controller
+  labels:
+    app.kubernetes.io/name: quobject-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: quobject-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: quobject-controller
+    spec:
+      serviceAccountName: quobject-controller
+      containers:
+        - name: manager
+          # ko replaces this with a built image at ko resolve/apply time
+          image: ko://github.com/your-org/quobject-controller
+          imagePullPolicy: IfNotPresent
+          args:
+            # enable or remove if you don't want leader election
+            - "--leader-elect"
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+# Optional: expose metrics if you scrape with a ServiceMonitor, etc.
+apiVersion: v1
+kind: Service
+metadata:
+  name: quobject-controller-metrics
+  namespace: quobject-controller
+  labels:
+    app.kubernetes.io/name: quobject-controller
+spec:
+  selector:
+    app.kubernetes.io/name: quobject-controller
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
